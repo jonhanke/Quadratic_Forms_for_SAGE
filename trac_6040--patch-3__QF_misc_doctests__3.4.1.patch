@@ -1,0 +1,1246 @@
+# HG changeset patch
+# User Jonathan Hanke <jonhanke@gmail.com>
+# Date 1242360366 25200
+# Node ID 12d1fb4068effe1cd9d790a740a6a1841e0a323a
+# Parent  b3d0bbb703abcd636299538541c6706d6fd19b94
+Added Doctests and made minor fixes to some Quafratic Forms routines.
+
+diff -r b3d0bbb703ab -r 12d1fb4068ef sage/quadratic_forms/quadratic_form.py
+--- a/sage/quadratic_forms/quadratic_form.py	Thu May 14 14:44:30 2009 -0700
++++ b/sage/quadratic_forms/quadratic_form.py	Thu May 14 21:06:06 2009 -0700
+@@ -112,7 +112,6 @@
+             rational_diagonal_form, \
+             signature_vector, \
+             signature, \
+-            local_diagonal, \
+             hasse_invariant, \
+             hasse_invariant__OMeara, \
+             is_hyperbolic, \
+@@ -120,6 +119,7 @@
+             is_isotropic, \
+             anisotropic_primes, \
+             compute_definiteness, \
++            compute_definiteness_string_by_determinants, \
+             is_positive_definite, \
+             is_negative_definite, \
+             is_indefinite, \
+@@ -192,7 +192,6 @@
+     ## Routines to compute p-neighbors
+     from sage.quadratic_forms.quadratic_form__neighbors import \
+             find_primitive_p_divisible_vector__random, \
+-            find_primitive_p_divisible_vector__all, \
+             find_primitive_p_divisible_vector__next, \
+             find_p_neighbor_from_vec
+ 
+diff -r b3d0bbb703ab -r 12d1fb4068ef sage/quadratic_forms/quadratic_form__evaluate.pyx
+--- a/sage/quadratic_forms/quadratic_form__evaluate.pyx	Thu May 14 14:44:30 2009 -0700
++++ b/sage/quadratic_forms/quadratic_form__evaluate.pyx	Thu May 14 21:06:06 2009 -0700
+@@ -2,14 +2,6 @@
+ 
+ def QFEvaluateVector(Q, v):
+     """
+-    Python wrapper for our fast evaluation routine.
+-    """
+-    return QFEvaluateVector_cdef(Q, v)
+-
+-
+-
+-cdef QFEvaluateVector_cdef(Q, v):
+-    """
+     Evaluate this quadratic form Q on a vector or matrix of elements
+     coercible to the base ring of the quadratic form.  If a vector
+     is given then the output will be the ring element Q(v), but if a
+@@ -18,6 +10,40 @@
+ 
+             Q' = v^t * Q * v.
+ 
++    Note: This is a Python wrapper for the fast evaluation routine
++    QFEvaluateVector_cdef().  This routine is for internal use and is
++    called more conveniently as Q(M).
++
++    INPUT:
++        Q -- QuadraticForm over a base ring R
++        v -- a tuple or list (or column matrix) of Q.dim() elements of R
++
++    OUTPUT:
++        an element of R
++
++    EXAMPLES:
++        sage: from sage.quadratic_forms.quadratic_form__evaluate import QFEvaluateVector
++        sage: Q = QuadraticForm(ZZ, 4, range(10)); Q
++        Quadratic form in 4 variables over Integer Ring with coefficients:
++        [ 0 1 2 3 ]
++        [ * 4 5 6 ]
++        [ * * 7 8 ]
++        [ * * * 9 ]
++        sage: QFEvaluateVector(Q, (1,0,0,0))
++        0
++        sage: QFEvaluateVector(Q, (1,0,1,0))
++        9
++
++    """
++    return QFEvaluateVector_cdef(Q, v)
++
++
++
++cdef QFEvaluateVector_cdef(Q, v):
++    """
++    Routine to quickly evaluate a quadratic form Q on a vector v.  See
++    the Python wrapper function QFEvaluate() above for details.
++
+     """
+     ## If we are passed a matrix A, return the quadratic form Q(A(x)) 
+     ## (In matrix notation: A^t * Q * A) 
+@@ -33,29 +59,72 @@
+     
+ 
+ 
+-def QFEvaluateMatrix(Q, v, Q2):
++def QFEvaluateMatrix(Q, M, Q2):
+     """
+-    Python wrapper for our fast evaluation routine.
++    Evaluate this quadratic form Q on a matrix M of elements coercible
++    to the base ring of the quadratic form, which in matrix notation
++    is given by:
++
++            Q2 = M^t * Q * M.
++
++    Note: This is a Python wrapper for the fast evaluation routine
++    QFEvaluateMatrix_cdef().  This routine is for internal use and is
++    called more conveniently as Q(M).  The inclusion of Q2 as an
++    argument is to avoid having to create a QuadraticForm here, which
++    for now creates circular imports.
++
++    INPUT:
++        Q -- QuadraticForm over a base ring R
++        M -- a Q.dim() x Q2.dim() matrix of elements of R
++
++    OUTPUT:
++        Q2 -- a QuadraticForm over R
++
++    EXAMPLES:
++        sage: from sage.quadratic_forms.quadratic_form__evaluate import QFEvaluateMatrix
++        sage: Q = QuadraticForm(ZZ, 4, range(10)); Q
++        Quadratic form in 4 variables over Integer Ring with coefficients:
++        [ 0 1 2 3 ]
++        [ * 4 5 6 ]
++        [ * * 7 8 ]
++        [ * * * 9 ]
++        sage: Q2 = QuadraticForm(ZZ, 2)
++        sage: M = Matrix(ZZ, 4, 2, [1,0,0,0, 0,1,0,0]); M
++        [1 0]
++        [0 0]
++        [0 1]
++        [0 0]
++        sage: QFEvaluateMatrix(Q, M, Q2)
++        Quadratic form in 2 variables over Integer Ring with coefficients:
++        [ 0 2 ]
++        [ * 7 ]
++
+     """
+-    return QFEvaluateMatrix_cdef(Q, v, Q2)
++    return QFEvaluateMatrix_cdef(Q, M, Q2)
+ 
+ 
+ 
+-cdef QFEvaluateMatrix_cdef(Q, v, Q2):
++cdef QFEvaluateMatrix_cdef(Q, M, Q2):
+     """
+-    Fast evaluation on a matrix. 
++    Routine to quickly evaluate a quadratic form Q on a matrix M.  See
++    the Python wrapper function QFEvaluateMatrix() above for details.
++
+     """
+     ## Create the new quadratic form
+     n = Q.dim()
+     m = Q2.dim()
++
++    ## TO DO: Check the dimensions of M are compatible with those of Q and Q2
++
++    ## Evaluate Q(M) into Q2
+     for k from 0 <= k < m:
+         for l from k <= l < m:
+             tmp_sum = Q2.base_ring()(0)
+             for i from 0 <= i < n:
+                 for j from i <= j < n:
+                     if (k == l):
+-                        tmp_sum += Q[i,j] * (v[i,k] * v[j,l])
++                        tmp_sum += Q[i,j] * (M[i,k] * M[j,l])
+                     else:
+-                        tmp_sum += Q[i,j] * (v[i,k] * v[j,l] + v[i,l] * v[j,k])
++                        tmp_sum += Q[i,j] * (M[i,k] * M[j,l] + M[i,l] * M[j,k])
+             Q2[k,l] = tmp_sum
+     return Q2
+diff -r b3d0bbb703ab -r 12d1fb4068ef sage/quadratic_forms/quadratic_form__local_field_invariants.py
+--- a/sage/quadratic_forms/quadratic_form__local_field_invariants.py	Thu May 14 14:44:30 2009 -0700
++++ b/sage/quadratic_forms/quadratic_form__local_field_invariants.py	Thu May 14 21:06:06 2009 -0700
+@@ -45,6 +45,9 @@
+     the transformation matrix performing the diagonalization as the
+     second argument.
+ 
++    INPUT:
++        none
++
+     OUTPUT:
+         Q -- the diagonalized form of this quadratic form
+         (optional) T -- matrix which diagonalizes Q (over it's fraction field)
+@@ -108,7 +111,8 @@
+         ## Create a matrix which deals with off-diagonal entries (all at once for each row)
+         temp = MS(1)
+         for j in range(i+1, n):
+-            temp[i,j] = -Q[i,j] / (Q[i,i] * 2)
++            if Q[i,j] != 0:
++                temp[i,j] = -Q[i,j] / (Q[i,i] * 2)    ## This should only occur when Q[i,i] != 0, which the above step guarantees.
+ 
+         Q = Q(temp)
+         T = T * temp
+@@ -136,10 +140,26 @@
+         None
+ 
+     OUTPUT:
+-        a triple of integers
++        a triple of integers >= 0
+ 
+     EXAMPLES:
+-    
++        sage: Q = DiagonalQuadraticForm(ZZ, [1,0,0,-4])
++        sage: Q.signature_vector()
++        (1, 1, 2)
++
++        sage: Q = DiagonalQuadraticForm(ZZ, [1,2,-3,-4])
++        sage: Q.signature_vector()
++        (2, 2, 0)
++
++        sage: Q = QuadraticForm(ZZ, 4, range(10)); Q
++        Quadratic form in 4 variables over Integer Ring with coefficients:
++        [ 0 1 2 3 ]
++        [ * 4 5 6 ]
++        [ * * 7 8 ]
++        [ * * * 9 ]
++        sage: Q.signature_vector()
++        (3, 1, 0)
++
+     """
+     diag = self.rational_diagonal_form()
+     p = 0
+@@ -167,11 +187,30 @@
+ 
+     of the matrix of the quadratic form.
+ 
++    INPUT:
++        None
++
+     OUTPUT:
+         an integer
+ 
+     EXAMPLES:
+-    
++        sage: Q = DiagonalQuadraticForm(ZZ, [1,0,0,-4,3,11,3])
++        sage: Q.signature()
++        3
++
++        sage: Q = DiagonalQuadraticForm(ZZ, [1,2,-3,-4])
++        sage: Q.signature()
++        0
++
++        sage: Q = QuadraticForm(ZZ, 4, range(10)); Q
++        Quadratic form in 4 variables over Integer Ring with coefficients:
++        [ 0 1 2 3 ]
++        [ * 4 5 6 ]
++        [ * * 7 8 ]
++        [ * * * 9 ]
++        sage: Q.signature()
++        2
++
+     """
+     (p, n, z) = self.signature_vector()
+     return p - n
+@@ -180,42 +219,6 @@
+ 
+ 
+ 
+-def local_diagonal(self, p):
+-    """
+-    Finds a diagonal form equivalent to Q over the p-adic numbers Q_p. 
+-
+-    INPUT:
+-    p -- prime number in ZZ
+-
+-    OUTPUT:
+-    A quadratic form whose only non-zero entries are on the diagonal.
+-
+-    """
+-    ## TODO: Check that  is a prime number
+-
+-    if (p != 2):
+-        return self.local_normal_form(p)  ## This is a diagonal matrix for Q over Z_p. =)
+-    else:
+-        Q2 = self.local_normal_form(p)
+-        for i in range(Q2.dim() - 1):
+-            if (Q2[i, i+1] != 0):
+-                ## This corresponds to [0 1]  =  [0  1/2]   ===>>>  [1  0]
+-                ##                     [0 0]     [1/2  0]           [0 -1]
+-                if (Q2[i,i] == 0):
+-                    Q2[i, i] = Q2[i, i+1]
+-                    Q2[i+1, i+1] = -Q2[i, i+1]
+-                    Q2[i, i+1] = 0
+-
+-                ## This corresponds to [1 1]  =  [1  1/2]   ===>>>  [1 0]
+-                ##                     [0 1]     [1/2  1]           [0 3]
+-                else:
+-                    Q2[i, i+1] = 0
+-                    Q2[i+1, i+1] = Q2[i+1, i+1] * 3    
+-
+-    return Q2
+-
+-
+-
+ def hasse_invariant(self, p):
+     """
+     Computes the Hasse invariant at a prime p, as given on p55 of
+@@ -224,7 +227,9 @@
+ 
+         c_p = \prod_{i < j} (a_i, a_j)_p
+ 
+-    where (a,b)_p is the Hilbert symbol at p.
++    where (a,b)_p is the Hilbert symbol at p.  The underlying
++    quadratic form must be non-degenerate over Q_p for this to make
++    sense.
+ 
+     WARNING: This is different from the O'Meara Hasse invariant, which
+     allows i <= j in the product.  That is given by the method
+@@ -232,10 +237,40 @@
+ 
+     NOTE: We should really rename this hasse_invariant__Cassels(), and
+     set hasse_invariant() as a front-end to it.
++
++    
++    INPUT:
++        p -- a prime number > 0 
++
++    OUTPUT:
++        1 or -1
++        
++    EXAMPLES:
++        sage: Q = QuadraticForm(ZZ, 2, [1,2,3])
++        sage: Q.rational_diagonal_form()
++        Quadratic form in 2 variables over Rational Field with coefficients:
++        [ 1 0 ]
++        [ * 2 ]
++        sage: [Q.hasse_invariant(p) for p in prime_range(20)]
++        [1, 1, 1, 1, 1, 1, 1, 1]
++        sage: [Q.hasse_invariant__OMeara(p) for p in prime_range(20)]
++        [1, 1, 1, 1, 1, 1, 1, 1]
++
++        sage: Q = DiagonalQuadraticForm(ZZ, [1,-1])
++        sage: [Q.hasse_invariant(p) for p in prime_range(20)]
++        [1, 1, 1, 1, 1, 1, 1, 1]
++        sage: [Q.hasse_invariant__OMeara(p) for p in prime_range(20)]
++        [1, 1, 1, 1, 1, 1, 1, 1]
++
++        sage: Q = DiagonalQuadraticForm(ZZ, [1,-1, -1])
++        sage: [Q.hasse_invariant(p) for p in prime_range(20)]
++        [-1, 1, 1, 1, 1, 1, 1, 1]
++        sage: [Q.hasse_invariant__OMeara(p) for p in prime_range(20)]
++        [1, 1, 1, 1, 1, 1, 1, 1]
+     """
+     ## TO DO: Need to deal with the case n=1 separately somewhere!
+ 
+-    Diag = self.local_diagonal(p);
++    Diag = self.rational_diagonal_form()
+ 
+     ## DIAGNOSTIC
+     #print "\n Q = " + str(self)
+@@ -263,11 +298,42 @@
+ 
+     WARNING: This is different from the (Cassels) Hasse invariant, which
+     only allows i < j in the product.  That is given by the method
+-    hasse_invariant_OMeara(p)
++    hasse_invariant(p).
++
++
++    INPUT:
++        p -- a prime number > 0 
++
++    OUTPUT:
++        1 or -1
++
++    EXAMPLES:
++        sage: Q = QuadraticForm(ZZ, 2, [1,2,3])
++        sage: Q.rational_diagonal_form()
++        Quadratic form in 2 variables over Rational Field with coefficients:
++        [ 1 0 ]
++        [ * 2 ]
++        sage: [Q.hasse_invariant(p) for p in prime_range(20)]
++        [1, 1, 1, 1, 1, 1, 1, 1]
++        sage: [Q.hasse_invariant__OMeara(p) for p in prime_range(20)]
++        [1, 1, 1, 1, 1, 1, 1, 1]
++
++        sage: Q = DiagonalQuadraticForm(ZZ, [1,-1])
++        sage: [Q.hasse_invariant(p) for p in prime_range(20)]
++        [1, 1, 1, 1, 1, 1, 1, 1]
++        sage: [Q.hasse_invariant__OMeara(p) for p in prime_range(20)]
++        [1, 1, 1, 1, 1, 1, 1, 1]
++
++        sage: Q = DiagonalQuadraticForm(ZZ, [1,-1, -1])
++        sage: [Q.hasse_invariant(p) for p in prime_range(20)]
++        [-1, 1, 1, 1, 1, 1, 1, 1]
++        sage: [Q.hasse_invariant__OMeara(p) for p in prime_range(20)]
++        [1, 1, 1, 1, 1, 1, 1, 1]
++
+     """
+     ## TO DO: Need to deal with the case n=1 separately somewhere!
+ 
+-    Diag = self.local_diagonal(p);
++    Diag = self.rational_diagonal_form()
+ 
+     ## DIAGNOSTIC
+     #print "\n Q = " + str(self)
+@@ -295,6 +361,12 @@
+             - local invariants for hyperbolic plane (Lemma 2.4, p58)
+             - direct sum formulas (Lemma 2.3 on p58)
+ 
++    INPUT:
++        p -- a prime number > 0
++
++    OUTPUT:
++        boolean
++
+     EXAMPLES:
+         sage: Q = DiagonalQuadraticForm(ZZ, [1,1])
+ 
+@@ -343,6 +415,37 @@
+ def is_anisotropic(self, p):
+     """
+     Checks if the quadratic form is anisotropic over the p-adic numbers Q_p. 
++
++    INPUT:
++        p -- a prime number > 0
++
++    OUTPUT:
++        boolean
++
++    EXAMPLES:
++        sage: Q = DiagonalQuadraticForm(ZZ, [1,1])
++        sage: Q.is_anisotropic(2)
++        True
++        sage: Q.is_anisotropic(3)
++        True
++        sage: Q.is_anisotropic(5)
++        False
++
++        sage: Q = DiagonalQuadraticForm(ZZ, [1,-1])
++        sage: Q.is_anisotropic(2)
++        False
++        sage: Q.is_anisotropic(3)
++        False
++        sage: Q.is_anisotropic(5)
++        False
++
++        sage: [DiagonalQuadraticForm(ZZ, [1, -quadratic_nonresidue(p)]).is_anisotropic(p)  for p in prime_range(3, 30)]
++        [True, True, True, True, True, True, True, True, True]
++
++        sage: [DiagonalQuadraticForm(ZZ, [1, -quadratic_nonresidue(p), p, -p*quadratic_nonresidue(p)]).is_anisotropic(p)  for p in prime_range(3, 30)]
++        [True, True, True, True, True, True, True, True, True]
++
++
+     """ 
+     n = self.dim()
+     D = self.det()
+@@ -370,6 +473,36 @@
+ def is_isotropic(self, p):
+     """
+     Checks if Q is isotropic over the p-adic numbers Q_p. 
++
++    INPUT:
++        p -- a prime number > 0
++
++    OUTPUT:
++        boolean
++
++    EXAMPLES:
++        sage: Q = DiagonalQuadraticForm(ZZ, [1,1])
++        sage: Q.is_isotropic(2)
++        False
++        sage: Q.is_isotropic(3)
++        False
++        sage: Q.is_isotropic(5)
++        True
++
++        sage: Q = DiagonalQuadraticForm(ZZ, [1,-1])
++        sage: Q.is_isotropic(2)
++        True
++        sage: Q.is_isotropic(3)
++        True
++        sage: Q.is_isotropic(5)
++        True
++
++        sage: [DiagonalQuadraticForm(ZZ, [1, -quadratic_nonresidue(p)]).is_isotropic(p)  for p in prime_range(3, 30)]
++        [False, False, False, False, False, False, False, False, False]
++
++        sage: [DiagonalQuadraticForm(ZZ, [1, -quadratic_nonresidue(p), p, -p*quadratic_nonresidue(p)]).is_isotropic(p)  for p in prime_range(3, 30)]
++        [False, False, False, False, False, False, False, False, False]
++
+     """
+     return not self.is_anisotropic(p)
+ 
+@@ -416,6 +549,8 @@
+     return AnisoPrimes
+ 
+ 
++
++
+ def compute_definiteness(self):
+     """
+     Computes whether the given quadratic form is positive-definite,
+@@ -438,6 +573,7 @@
+ 
+     EXAMPLES:
+         sage: Q = DiagonalQuadraticForm(ZZ, [1,1,1,1,1])
++        sage: Q.compute_definiteness()
+         sage: Q.is_positive_definite()
+         True
+         sage: Q.is_negative_definite()
+@@ -448,6 +584,7 @@
+         True
+ 
+         sage: Q = DiagonalQuadraticForm(ZZ, [])
++        sage: Q.compute_definiteness()
+         sage: Q.is_positive_definite()
+         True
+         sage: Q.is_negative_definite()
+@@ -458,6 +595,7 @@
+         True
+ 
+         sage: Q = DiagonalQuadraticForm(ZZ, [1,0,-1])
++        sage: Q.compute_definiteness()
+         sage: Q.is_positive_definite()
+         False
+         sage: Q.is_negative_definite()
+@@ -482,10 +620,77 @@
+         self.__definiteness_string = "zero"
+         return
+ 
++
++    sig_pos, sig_neg, sig_zer = self.signature_vector()
++
++    ## Determine and cache the definiteness string
++    if sig_zer > 0:
++        self.__definiteness_string = "degenerate"
++        return
++    elif sig_neg == n:
++        self.__definiteness_string = "neg_def"
++        return
++    elif sig_pos == n:
++        self.__definiteness_string = "pos_def"
++        return
++    else:
++        self.__definiteness_string = "indefinite"
++        return
++
++
++
++def compute_definiteness_string_by_determinants(self):
++    """
++    Compute the (positive) definiteness of a quadratic form by looking
++    at the signs of all of its upper-left subdeterminants.  See also
++    self.compute_definiteness() for more documentation.
++
++    INPUT:
++        None
++
++    OUTPUT:
++        string describing the definiteness
++
++    EXAMPLES:
++        sage: Q = DiagonalQuadraticForm(ZZ, [1,1,1,1,1])
++        sage: Q.compute_definiteness_string_by_determinants()
++        'pos_def'
++
++        sage: Q = DiagonalQuadraticForm(ZZ, [])
++        sage: Q.compute_definiteness_string_by_determinants()
++        'zero'
++
++        sage: Q = DiagonalQuadraticForm(ZZ, [1,0,-1]) 
++        sage: Q.compute_definiteness_string_by_determinants()
++        'degenerate'
++
++        sage: Q = DiagonalQuadraticForm(ZZ, [1,-1]) 
++        sage: Q.compute_definiteness_string_by_determinants()
++        'indefinite'
++
++        sage: Q = DiagonalQuadraticForm(ZZ, [-1,-1]) 
++        sage: Q.compute_definiteness_string_by_determinants()
++        'neg_def'
++
++    """
++    ## Sanity Check
++    if not ((self.base_ring() == ZZ) or (self.base_ring() == QQ) or (self.base_ring() == RR)):
++        raise NotImplementedError, "Oops!  We can only check definiteness over ZZ, QQ, and RR for now." 
++    
++    ## Some useful variables
++    n = self.dim()
++    M = self.matrix()
++
++
++    ## Deal with the zero-diml form
++    if n == 0:
++        return "zero"
++
++
++
+     ## Deal with degenerate forms
+     if self.det() == 0:
+-        self.__definiteness_string = "degenerate"
+-        return
++        return "degenerate"
+    
+ 
+     ## Check the sign of the ratios of consecutive determinants of the upper triangular r x r submatrices
+@@ -496,23 +701,24 @@
+ 
+         ## Check for a (non-degenerate) zero -- so it's indefinite 
+         if new_det == 0:        
+-            self.__definiteness_string = "indefinite"
+-            return
++            return "indefinite"
++            
+ 
+         ## Check for a change of signs in the upper r x r submatrix -- so it's indefinite
+         if sgn(first_coeff)**r != sgn(new_det):
+-            self.__definiteness_string = "indefinite"
+-            return
++            return "indefinite"
++            
+ 
+     ## Here all ratios of determinants have the correct sign, so the matrix is (pos or neg) definite.
+     if first_coeff > 0:
+-        self.__definiteness_string = "pos_def"
++        return "pos_def"
+     else:
+-        self.__definiteness_string = "neg_def"
++        return "neg_def"
+         
+ 
+ 
+ 
++
+ def is_positive_definite(self):
+     """
+     Determines if the given quadratic form is positive-definite.
+@@ -633,12 +839,12 @@
+ 
+     EXAMPLES:
+         sage: Q = DiagonalQuadraticForm(ZZ, [-1,-3,-5])
+-        sage: Q.is_indefinite()
+-        False
++        sage: Q.is_definite()
++        True
+ 
+         sage: Q = DiagonalQuadraticForm(ZZ, [1,-3,5])
+-        sage: Q.is_indefinite()
+-        True
++        sage: Q.is_definite()
++        False
+     
+     """
+     ## Try to use the cached value
+diff -r b3d0bbb703ab -r 12d1fb4068ef sage/quadratic_forms/quadratic_form__local_normal_form.py
+--- a/sage/quadratic_forms/quadratic_form__local_normal_form.py	Thu May 14 14:44:30 2009 -0700
++++ b/sage/quadratic_forms/quadratic_form__local_normal_form.py	Thu May 14 21:06:06 2009 -0700
+@@ -33,6 +33,25 @@
+ 
+     Note: This answer is independent of the kind of matrix (Gram or
+     Hessian) associated to the form.
++
++    INPUT:
++        p -- a prime number > 0
++
++    OUTPUT:
++        a pair of integers >= 0
++
++    EXAMPLES:
++        sage: Q = QuadraticForm(ZZ, 2, [6, 2, 20]); Q
++        Quadratic form in 2 variables over Integer Ring with coefficients: 
++        [ 6 2 ]
++        [ * 20 ]
++        sage: Q.find_entry_with_minimal_scale_at_prime(2)
++        (0, 1)
++        sage: Q.find_entry_with_minimal_scale_at_prime(3)
++        (1, 1)
++        sage: Q.find_entry_with_minimal_scale_at_prime(5)
++        (0, 0)
++
+     """
+     n = self.dim()
+     min_val = Infinity
+@@ -69,6 +88,9 @@
+ 
+     INPUT:
+         p -- a positive prime number.
++
++    OUTPUT:
++        a quadratic form over ZZ
+     
+     WARNING:  Currently this only works for quadratic forms defined over ZZ.
+     
+@@ -262,7 +284,6 @@
+     False, then the routine is much faster but the return values are
+     vulnerable to being corrupted by the user. 
+ 
+-
+     INPUT:
+         p -- a prime number > 0.
+ 
+diff -r b3d0bbb703ab -r 12d1fb4068ef sage/quadratic_forms/quadratic_form__local_representation_conditions.py
+--- a/sage/quadratic_forms/quadratic_form__local_representation_conditions.py	Thu May 14 14:44:30 2009 -0700
++++ b/sage/quadratic_forms/quadratic_form__local_representation_conditions.py	Thu May 14 21:06:06 2009 -0700
+@@ -1,8 +1,8 @@
+ 
+-#########################################################################
+-## Class for keping track of the local conditions for representability ##
+-## of numbers by a quadratic form over ZZ (and eventually QQ also).    ##
+-#########################################################################
++##########################################################################
++## Class for keeping track of the local conditions for representability ##
++## of numbers by a quadratic form over ZZ (and eventually QQ also).     ##
++##########################################################################
+ 
+ from copy import deepcopy
+ 
+@@ -13,6 +13,8 @@
+ from sage.misc.functional import numerator, denominator
+ from sage.rings.rational_field import QQ
+ 
++
++
+ class QuadraticFormLocalRepresentationConditions():
+     """
+     Creates a class for dealing with the local conditions of a
+@@ -88,6 +90,12 @@
+         previously computed conditions if they exist, and stores the
+         new conditions.
+ 
++        INPUT:
++            Q -- Quadratic form over ZZ
++        
++        OUTPUT:
++            a  QuadraticFormLocalRepresentationConditions object
++
+         EXAMPLES:
+             sage: Q = DiagonalQuadraticForm(ZZ, [1,1,1,1])
+             sage: from sage.quadratic_forms.quadratic_form__local_representation_conditions import QuadraticFormLocalRepresentationConditions
+@@ -189,6 +197,12 @@
+         """
+         Print the local conditions.
+ 
++        INPUT:
++            none
++
++        OUTPUT:
++            string
++
+         TO DO:  Improve the output for the real numbers, and special output for locally unversality. 
+         Also give names to the squareclasses, so it's clear what the output means! =)
+ 
+@@ -227,6 +241,12 @@
+     def __eq__(self, right):
+         """
+         Determines if two sets of local conditions are equal.
++
++        INPUT:
++            right -- a QuadraticFormLocalRepresentationConditions object
++
++        OUTPUT:
++            boolean
+     
+         EXAMPLES:
+              sage: Q1 = DiagonalQuadraticForm(ZZ, [1,1])
+@@ -295,6 +315,12 @@
+         """
+         Returns a local representation vector for the (possibly infinite) prime p.
+ 
++        INPUT:
++            p -- a positive prime number.  (Is 'infinity' allowed here?)
++
++        OUTPUT:
++            a list of integers
++
+         EXAMPLES:
+             sage: Q = DiagonalQuadraticForm(ZZ, [1,1,1])
+             sage: from sage.quadratic_forms.quadratic_form__local_representation_conditions import QuadraticFormLocalRepresentationConditions
+@@ -340,10 +366,17 @@
+         raise RuntimeError, "Error... The dimension stored should be a non-negative integer!" 
+ 
+ 
++
+     def is_universal_at_prime(self, p):
+         """
+         Determines if the (integer-valued/rational) quadratic form represents all of Z_p.
+ 
++        INPUT:
++            p -- a positive prime number or "infinity".
++
++        OUTPUT:
++            boolean
++
+         EXAMPLES:
+             sage: Q = DiagonalQuadraticForm(ZZ, [1,1,1])
+             sage: from sage.quadratic_forms.quadratic_form__local_representation_conditions import QuadraticFormLocalRepresentationConditions
+@@ -383,6 +416,12 @@
+         """
+         Determines if the quadratic form represents Z_p for all finite/non-archimedian primes.
+ 
++        INPUT:
++            none
++
++        OUTPUT:
++            boolean
++
+         EXAMPLES:
+             sage: Q = DiagonalQuadraticForm(ZZ, [1,1,1])
+             sage: from sage.quadratic_forms.quadratic_form__local_representation_conditions import QuadraticFormLocalRepresentationConditions
+@@ -411,6 +450,13 @@
+         """
+         Determines if the quadratic form represents Z_p for all
+         finite/non-archimedian primes, and represents all real numbers.
++
++        INPUT:
++            none
++
++        OUTPUT:
++            boolean
++
+         EXAMPLES:
+             sage: from sage.quadratic_forms.quadratic_form__local_representation_conditions import QuadraticFormLocalRepresentationConditions
+ 
+@@ -446,6 +492,13 @@
+         Determines if the rational number m is locally represented by the
+         quadratic form at the (possibly infinite) prime p.
+ 
++        INPUT:
++            m -- an integer
++            p -- a positive prime number or "infinity".
++
++        OUTPUT:
++            boolean
++
+         EXAMPLES:
+             sage: from sage.quadratic_forms.quadratic_form__local_representation_conditions import QuadraticFormLocalRepresentationConditions
+ 
+@@ -506,7 +559,15 @@
+ 
+     def is_locally_represented(self, m):
+         """
+-        Determines if the rational number m is locally represented by the quadratic form (allowing vectors with coeffs in Z_p at all places).
++        Determines if the rational number m is locally represented by
++        the quadratic form (allowing vectors with coeffs in Z_p at all
++        places).
++
++        INPUT:
++            m -- an integer
++
++        OUTPUT:
++            boolean
+ 
+         EXAMPLES:
+             sage: from sage.quadratic_forms.quadratic_form__local_representation_conditions import QuadraticFormLocalRepresentationConditions
+@@ -604,6 +665,9 @@
+     positive reals are represented).  The real vector always appears,
+     and is listed before the other ones.
+ 
++    INPUT:
++        none
++
+     OUTPUT:
+         A list of 9-element vectors describing the representation
+         obstructions at primes dividing the level.
+@@ -673,6 +737,38 @@
+ def is_locally_universal_at_prime(self, p):
+     """
+     Determines if the (integer-valued/rational) quadratic form represents all of Z_p.
++
++    INPUT:
++        p -- a positive prime number or "infinity".
++
++    OUTPUT:
++        boolean
++
++    EXAMPLES:
++        sage: Q = DiagonalQuadraticForm(ZZ, [1,3,5,7])
++        sage: Q.is_locally_universal_at_prime(2)
++        True
++        sage: Q.is_locally_universal_at_prime(3)
++        True
++        sage: Q.is_locally_universal_at_prime(5)
++        True
++        sage: Q.is_locally_universal_at_prime(infinity)
++        False
++
++        sage: Q = DiagonalQuadraticForm(ZZ, [1,1,1])
++        sage: Q.is_locally_universal_at_prime(2)
++        False
++        sage: Q.is_locally_universal_at_prime(3)
++        True
++        sage: Q.is_locally_universal_at_prime(5)
++        True
++        sage: Q.is_locally_universal_at_prime(infinity)
++        False
++
++        sage: Q = DiagonalQuadraticForm(ZZ, [1,1,-1])
++        sage: Q.is_locally_universal_at_prime(infinity)
++        True
++
+     """
+     self.local_representation_conditions(silent_flag=True)
+     return self.__local_representability_conditions.is_universal_at_prime(p)
+@@ -682,6 +778,26 @@
+ def is_locally_universal_at_all_primes(self):
+     """
+     Determines if the quadratic form represents Z_p for all finite/non-archimedian primes.
++
++    INPUT:
++        none
++
++    OUTPUT:
++        boolean
++
++    EXAMPLES:
++        sage: Q = DiagonalQuadraticForm(ZZ, [1,3,5,7])
++        sage: Q.is_locally_universal_at_all_primes()
++        True
++
++        sage: Q = DiagonalQuadraticForm(ZZ, [1,1,1,1])
++        sage: Q.is_locally_universal_at_all_primes()
++        True
++
++        sage: Q = DiagonalQuadraticForm(ZZ, [1,1,1])
++        sage: Q.is_locally_universal_at_all_primes()
++        False
++
+     """    
+     self.local_representation_conditions(silent_flag=True)
+     return self.__local_representability_conditions.is_universal_at_all_finite_primes()
+@@ -692,6 +808,26 @@
+     """
+     Determines if the quadratic form represents Z_p for all
+     finite/non-archimedian primes, and represents all real numbers.
++
++    INPUT:
++        none
++
++    OUTPUT:
++        boolean
++
++    EXAMPLES:
++        sage: Q = DiagonalQuadraticForm(ZZ, [1,3,5,7])
++        sage: Q.is_locally_universal_at_all_places()
++        False
++
++        sage: Q = DiagonalQuadraticForm(ZZ, [1,1,1,1])
++        sage: Q.is_locally_universal_at_all_places()
++        False
++
++        sage: Q = DiagonalQuadraticForm(ZZ, [1,1,1,1,-1])
++        sage: Q.is_locally_universal_at_all_places()
++        True
++
+     """
+     self.local_representation_conditions(silent_flag=True)
+     return self.__local_representability_conditions.is_universal_at_all_places()
+@@ -702,6 +838,44 @@
+     """
+     Determines if the rational number m is locally represented by the
+     quadratic form at the (possibly infinite) prime p.
++
++    INPUT:
++        m -- an integer
++        p -- a prime number > 0 or 'infinity'
++
++    OUTPUT:
++        boolean
++
++    EXAMPLES:
++        sage: Q = DiagonalQuadraticForm(ZZ, [1,1,1])
++        sage: Q.is_locally_represented_number_at_place(7, infinity)
++        True
++        sage: Q.is_locally_represented_number_at_place(7, 2)
++        False
++        sage: Q.is_locally_represented_number_at_place(7, 3)
++        True
++        sage: Q.is_locally_represented_number_at_place(7, 5)
++        True
++
++        sage: Q.is_locally_represented_number_at_place(7, infinity)
++        True
++        sage: Q.is_locally_represented_number_at_place(7, 2)
++        True
++        sage: Q.is_locally_represented_number_at_place(7, 3)
++        True
++        sage: Q.is_locally_represented_number_at_place(7, 5)
++        True
++
++
++        sage: Q.is_locally_represented_number_at_place(-1, infinity)
++        False
++        sage: Q.is_locally_represented_number_at_place(-1, 2)
++        False
++        sage: Q.is_locally_represented_number_at_place(7, 3)
++        True
++        sage: Q.is_locally_represented_number_at_place(7, 5)
++        True
++
+     """
+     self.local_representation_conditions(silent_flag=True)
+     return self.__local_representability_conditions.is_locally_represented_at_place(m, p)
+@@ -711,6 +885,26 @@
+ def is_locally_represented_number(self, m):
+     """
+     Determines if the rational number m is locally represented by the quadratic form.
++
++    INPUT:
++        m -- an integer
++
++    OUTPUT:
++        boolean
++
++    EXAMPLES:
++        sage: Q = DiagonalQuadraticForm(ZZ, [1,1,1,1])
++        sage: Q.is_locally_represented_number(2)
++        True
++        sage: Q.is_locally_represented_number(7)
++        False
++        sage: Q.is_locally_represented_number(-1)
++        False
++        sage: Q.is_locally_represented_number(28)
++        False
++        sage: Q.is_locally_represented_number(0)
++        True
++        
+     """
+     self.local_representation_conditions(silent_flag=True)
+     return self.__local_representability_conditions.is_locally_represented(m)
+diff -r b3d0bbb703ab -r 12d1fb4068ef sage/quadratic_forms/quadratic_form__neighbors.py
+--- a/sage/quadratic_forms/quadratic_form__neighbors.py	Thu May 14 14:44:30 2009 -0700
++++ b/sage/quadratic_forms/quadratic_form__neighbors.py	Thu May 14 21:06:06 2009 -0700
+@@ -55,14 +55,14 @@
+ 
+ 
+ 
+-def find_primitive_p_divisible_vector__all(self, p):
+-    """
+-    Finds all random p-primitive vectors (up to scaling) in L/pL whose
+-    value is p-divisible.
+-
+-    Note: Since there are about p^(n-2) of these lines, we should avoid this for large n.
+-    """
+-    pass
++#def find_primitive_p_divisible_vector__all(self, p):
++#    """
++#    Finds all random p-primitive vectors (up to scaling) in L/pL whose
++#    value is p-divisible.
++#
++#    Note: Since there are about p^(n-2) of these lines, we should avoid this for large n.
++#    """
++#    pass
+ 
+ 
+ def find_primitive_p_divisible_vector__next(self, p, v=None):
+diff -r b3d0bbb703ab -r 12d1fb4068ef sage/quadratic_forms/quadratic_form__split_local_covering.py
+--- a/sage/quadratic_forms/quadratic_form__split_local_covering.py	Thu May 14 14:44:30 2009 -0700
++++ b/sage/quadratic_forms/quadratic_form__split_local_covering.py	Thu May 14 21:06:06 2009 -0700
+@@ -53,7 +53,21 @@
+ 
+ 
+     EXAMPLES:
++        sage: Q = DiagonalQuadraticForm(ZZ, [1,1,1]) 
++        sage: Q.cholesky_decomposition()
++        [ 1.00000000000000 0.000000000000000 0.000000000000000]
++        [0.000000000000000  1.00000000000000 0.000000000000000]
++        [0.000000000000000 0.000000000000000  1.00000000000000]
+ 
++        sage: Q = QuadraticForm(QQ, 3, range(1,7)); Q
++        Quadratic form in 3 variables over Rational Field with coefficients: 
++        [ 1 2 3 ]
++        [ * 4 5 ]
++        [ * * 6 ]
++        sage: Q.cholesky_decomposition()
++        [ 1.00000000000000  1.00000000000000  1.50000000000000]
++        [0.000000000000000  3.00000000000000 0.333333333333333]
++        [0.000000000000000 0.000000000000000  3.41666666666667]
+ 
+     """
+ 
+@@ -83,7 +97,7 @@
+ 
+     ## 4. Zero out the strictly lower-triangular entries
+     for i in range(n):
+-        for j in range(i-1):
++        for j in range(i):
+             Q[i,j] = 0
+ 
+     return Q
+@@ -97,6 +111,9 @@
+     This is a maive algorithm which uses the Cholesky decomposition,
+     but does not use the LLL-reduction algorithm.
+ 
++    INPUT:
++       bound -- an integer >= 0
++
+     OUTPUT:
+         A list L of length (bound + 1) whose entry L[i] is a list of
+         all vectors of length i.
+@@ -250,6 +267,13 @@
+     lattice (as opposed to a sublattice in the C++ code) since we
+     now extend v to a unimodular matrix.
+ 
++    INPUT:
++        v -- a list of self.dim() integers
++
++    OUTPUT:
++        a QuadraticForm over ZZ
++
++
+     EXAMPLES:
+     sage: Q1 = DiagonalQuadraticForm(ZZ, [1,3,5,7])
+     sage: Q1.complementary_subform_to_vector([1,0,0,0])
+@@ -341,6 +365,12 @@
+     comparing the local conditions of its sum with it's complementary
+     lattice and the original quadratic form Q.
+ 
++    INPUT:
++        none
++
++    OUTPUT:
++        a QuadraticForm over ZZ
++
+     EXAMPLES:
+         sage: Q1 = DiagonalQuadraticForm(ZZ, [7,5,3])
+         sage: Q1.split_local_cover()
+diff -r b3d0bbb703ab -r 12d1fb4068ef sage/quadratic_forms/quadratic_form__variable_substitutions.py
+--- a/sage/quadratic_forms/quadratic_form__variable_substitutions.py	Thu May 14 14:44:30 2009 -0700
++++ b/sage/quadratic_forms/quadratic_form__variable_substitutions.py	Thu May 14 21:06:06 2009 -0700
+@@ -21,6 +21,12 @@
+     Switch the variables x_r and x_s in the quadratic form
+     (replacing the original form if the in_place flag is True).
+ 
++    INPUT:
++        r, s -- integers >= 0
++
++    OUTPUT:
++        a QuadraticForm (by default, otherwise none)
++
+     EXAMPLES:
+         sage: Q = QuadraticForm(ZZ, 4, range(1,11))
+         sage: Q
+@@ -73,6 +79,13 @@
+     Here c must be an element of the base_ring defining the
+     quadratic form.
+ 
++    INPUT:
++        c -- an element of Q.base_ring()
++        i -- an integer >= 0
++
++    OUTPUT:
++        a QuadraticForm (by default, otherwise none)
++
+     EXAMPLES:
+         sage: Q = DiagonalQuadraticForm(ZZ, [1,9,5,7])
+         sage: Q.multiply_variable(5,0)
+@@ -110,6 +123,13 @@
+     quadratic form, and the division must be definied in the base
+     ring.
+ 
++    INPUT:
++        c -- an element of Q.base_ring()
++        i -- an integer >= 0
++
++    OUTPUT:
++        a QuadraticForm (by default, otherwise none)
++
+     EXAMPLES:
+         sage: Q = DiagonalQuadraticForm(ZZ, [1,9,5,7])
+         sage: Q.divide_variable(3,1)
+@@ -196,6 +216,25 @@
+     """
+     Extract the variables (in order) whose indices are listed in
+     var_indices, to give a new quadratic form.
++
++    INPUT:
++        var_indices -- a list of integers >= 0
++
++    OUTPUT:
++        a QuadraticForm 
++
++    EXAMPLES:
++        sage: Q = QuadraticForm(ZZ, 4, range(10)); Q
++        Quadratic form in 4 variables over Integer Ring with coefficients:
++        [ 0 1 2 3 ]
++        [ * 4 5 6 ]
++        [ * * 7 8 ]
++        [ * * * 9 ]
++        sage: Q.extract_variables([1,3])
++        Quadratic form in 2 variables over Integer Ring with coefficients:
++        [ 4 6 ]
++        [ * 9 ]
++
+     """
+     m = len(var_indices)
+     Q = copy.deepcopy(self)
+@@ -213,6 +252,13 @@
+     Perform the substitution x_i --> x_i + c*x_j (replacing the
+     original form if the in_place flag is True).
+ 
++    INPUT:
++        c -- an element of Q.base_ring()
++        i,j -- integers >= 0
++
++    OUTPUT:
++        a QuadraticForm (by default, otherwise none)
++
+     EXAMPLES:
+         sage: Q = QuadraticForm(ZZ, 4, range(1,11))
+         sage: Q
+@@ -284,6 +330,42 @@
+     NOTE: This is meant for compatibility with previous code,
+     which implemented a matrix model for this class.  It is used
+     in the local_normal_form() method.
++
++
++    INPUT:
++        c -- an element of Q.base_ring()
++        i,j -- integers >= 0
++
++    OUTPUT:
++        a QuadraticForm (by default, otherwise none)
++
++    EXAMPLES:
++        sage: Q = QuadraticForm(ZZ, 3, range(1,7)); Q
++        Quadratic form in 3 variables over Integer Ring with coefficients: 
++        [ 1 2 3 ]
++        [ * 4 5 ]
++        [ * * 6 ]
++        sage: Q.add_symmetric(-1, 1, 0)
++        Quadratic form in 3 variables over Integer Ring with coefficients: 
++        [ 1 0 3 ]
++        [ * 3 2 ]
++        [ * * 6 ]
++        sage: Q.add_symmetric(-3/2, 2, 0)     ## ERROR: -3/2 isn't in the base ring ZZ
++        Traceback (most recent call last):
++        ...
++        RuntimeError: Oops!  This coefficient can't be coerced to an element of the base ring for the quadratic form.
++
++        sage: Q = QuadraticForm(QQ, 3, range(1,7)); Q
++        Quadratic form in 3 variables over Rational Field with coefficients: 
++        [ 1 2 3 ]
++        [ * 4 5 ]
++        [ * * 6 ]
++        sage: Q.add_symmetric(-3/2, 2, 0)
++        Quadratic form in 3 variables over Rational Field with coefficients: 
++        [ 1 2 0 ]
++        [ * 4 2 ]
++        [ * * 15/4 ]
++        
+     """
+     return self.elementary_substitution(c, j, i, in_place)
+ 
