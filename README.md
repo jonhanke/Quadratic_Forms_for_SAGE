@@ -1,4 +1,4 @@
-# Quadratic_Forms_for_SAGE
+# QuadraticForm class/functionality for SAGE
 SAGE/Python Source Code to define the QuadraticForm class for the [SAGE Open Source Computer algebra system](http://www.sagemath.org/), also used in the [CoCalc Collaborative Calculation in the Cloud](https://cocalc.com/) service. 
 
 This code is given by the commits:
